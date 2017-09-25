@@ -1,0 +1,102 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    k8s-app: oidc-auth-proxy
+  name: oidc-auth-proxy
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: oidc-auth-proxy
+  template:
+    metadata:
+      labels:
+        k8s-app: oidc-auth-proxy
+    spec:
+      containers:
+        env:
+        - name: REALM
+          value: http://ff6d0c39.ngrok.io/auth/realms/kubernetes
+        - name: CLIENT_ID
+          value: <clientid>
+        # Prefer to use kubernetes secrets
+        - name: CLIENT_SECRET
+          value: <clientsec>
+        # python -c 'import os,base64; print base64.b64encode(os.urandom(16))'
+        - name: SECRET
+          value: "something very hard to guess"
+        image: docker.io/emblica/oidc-auth-proxy:latest
+        imagePullPolicy: Always
+        name: oidc-auth-proxy
+        ports:
+        - containerPort: 5556
+          protocol: TCP
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    k8s-app: oidc-auth-proxy
+  name: oidc-auth-proxy
+  namespace: kube-system
+spec:
+  ports:
+  - name: http
+    port: 5556
+    protocol: TCP
+    targetPort: 5556
+  selector:
+    k8s-app: oidc-auth-proxy
+
+
+---
+# RESOURCES TO PROTECT WITH SSO
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: cluster-admin-logs-ingress
+  namespace: kube-system
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "true"
+    kubernetes.io/ingress.class: "nginx"
+    ingress.kubernetes.io/auth-signin: https://logs.example.com/sso
+    ingress.kubernetes.io/auth-url: https://logs.example.com/sso/auth
+spec:
+  tls:
+  - secretName: cluster-wildcard-tls
+    hosts:
+      - "logs.example.com"
+  rules:
+  - host: logs.example.com
+    http:
+      paths:
+      - backend:
+          serviceName: kibana-logging
+          servicePort: 5601
+---
+
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: cluster-admin-logs-ingress
+  namespace: kube-system
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "true"
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  tls:
+  - secretName: cluster-wildcard-tls
+    hosts:
+      - "logs.example.com"
+  rules:
+  - host: logs.example.com
+    http:
+      paths:
+      - path: "/sso"
+        backend:
+          serviceName: kibana-logging
+          servicePort: 5601
